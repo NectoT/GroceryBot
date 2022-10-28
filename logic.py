@@ -140,6 +140,36 @@ class DBHandler:
         DBHandler.connection.commit()
 
 
+class UnfinishedCommand:
+    def __init__(self, user, chat_id, command_type):
+        self.user = user
+        self.command_type = command_type
+        self.chat_id = chat_id
+        UnfinishedCommand.commands.append(self)
+
+    def get_user_id(self):
+        return self.user.id
+
+    def finish(self, message):
+        UnfinishedCommand.commands.remove(self)
+        if self.command_type == "/join":
+            try:
+                grocery_list_id = int(message.text)
+                join_grocery_list(bot, self.user, message.chat_id, grocery_list_id)
+                return True
+            except ValueError:
+                return False
+        elif self.command_type == "/remove":
+            if is_command(message):
+                return False
+            else:
+                remove_from_grocery_list(bot, self.user, message.chat_id, get_text(message))
+                return True
+        return False
+
+    commands = []
+
+
 def is_command(message: telegram.Message):
     for entity in message.entities:
         if entity.type == telegram.MessageEntity.BOT_COMMAND:
@@ -259,21 +289,27 @@ async def handle_updates(bot: telegram.Bot, update_queue: Queue):
     print("Connected to bot")
     while True:
         update: telegram.Update = update_queue.get()
+
         if update.callback_query is not None:
             user: telegram.User = update.callback_query.from_user
             if update.callback_query.data == "join":
-                # looking for a grocery list id as a message. Put update back if it's not that
                 bot.send_message(update.callback_query.message.chat_id, BOTMESSAGES[user.language_code]["join_help"])
-                update: telegram.Update = update_queue.get()
-                try:
-                    grocery_list_id = int(update.message.text)
-                    join_grocery_list(bot, user, update.message.chat_id, grocery_list_id)
-                except ValueError:
-                    update_queue.put(update)
+                UnfinishedCommand(user, update.callback_query.message.chat_id, "/join")
             elif update.callback_query.data == "create":
                 create_grocery_list(bot, user, update.callback_query.message.chat_id)
+            continue
+
         if update.message is not None:
             user: telegram.User = update.message.from_user
+            command_finished = False
+            for unfinished_command in UnfinishedCommand.commands:
+                print(unfinished_command.get_user_id())
+                if unfinished_command.get_user_id() == user.id:
+                    command_finished = unfinished_command.finish(update.message)
+                    break
+            if command_finished:
+                continue
+
             if get_command(update.message) == "/start":
                 inline_markup = telegram.InlineKeyboardMarkup([
                     [telegram.InlineKeyboardButton("/join", callback_data="join")],
@@ -286,12 +322,7 @@ async def handle_updates(bot: telegram.Bot, update_queue: Queue):
             elif get_command(update.message) == "/join":
                 if get_text(update.message) == "":  # perform command with two separate messages
                     bot.send_message(update.message.chat_id, BOTMESSAGES[user.language_code]["join_help"])
-                    update: telegram.Update = update_queue.get()
-                    try:
-                        grocery_list_id = int(update.message.text)
-                        join_grocery_list(bot, user, update.message.chat_id, grocery_list_id)
-                    except ValueError:
-                        update_queue.put(update)
+                    UnfinishedCommand(user, update.message.chat_id, "/remove")
                 else:  # perform command with one message
                     try:
                         grocery_list_id = int(get_text(update.message))
@@ -305,11 +336,7 @@ async def handle_updates(bot: telegram.Bot, update_queue: Queue):
             elif get_command(update.message) == "/remove":
                 if get_text(update.message) == "":  # perform command with two separate messages
                     bot.send_message(update.message.chat_id, BOTMESSAGES[user.language_code]["remove_help"])
-                    update: telegram.Update = update_queue.get()
-                    if is_command(update.message):
-                        update_queue.put(update)
-                    else:
-                        remove_from_grocery_list(bot, user, update.message.chat_id, get_text(update.message))
+                    UnfinishedCommand(user, update.message.chat_id, "/remove")
                 else:  # perform command with one message
                     remove_from_grocery_list(bot, user, update.message.chat_id, get_text(update.message))
             elif get_text(update.message) != "":
