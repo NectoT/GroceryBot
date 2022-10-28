@@ -23,6 +23,6 @@ atexit.register(on_exit)
 while True:
     os.system("git pull origin")
     print("Pulled newest version from origin")
-    process = subprocess.Popen("python3 logic.py", shell=False)
+    process = subprocess.Popen(["python3", "logic.py"], shell=False)
     time.sleep(5 * 60)
     process.terminate()
