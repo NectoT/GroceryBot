@@ -131,12 +131,15 @@ class DBHandler:
         if DBHandler.cursor.rowcount != 1:
             return
         grocery_list_id = DBHandler.cursor.fetchone()[0]
+
+        DBHandler.cursor.execute("SELECT * from grocerylists WHERE id = %s and %s <@ items", [grocery_list_id, [entry]])
+        if DBHandler.cursor.rowcount == 0:
+            raise ValueError("No such entry exists in grocery list")
+
         DBHandler.cursor.execute('''
                     UPDATE grocerylists
                     SET items = array_remove(items, %s) WHERE id = %s
         ''', (entry, grocery_list_id))
-        if DBHandler.cursor.statusmessage == "UPDATE 0":
-            raise ValueError("No such entry exists in grocery list")
         DBHandler.connection.commit()
 
 
