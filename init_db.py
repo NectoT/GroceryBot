@@ -1,7 +1,7 @@
 import psycopg2
 from constants import DBNAME, DBPASSWORD
 
-connection = psycopg2.connect("dbname={0} user=postgres password={1}".format(DBNAME, DBPASSWORD))
+connection = psycopg2.connect("dbname={0} user=postgres host='localhost' password={1}".format(DBNAME, DBPASSWORD))
 cursor = connection.cursor()
 cursor.execute(
     '''CREATE TABLE groceryLists (
