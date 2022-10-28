@@ -67,8 +67,7 @@ class DBHandler:
 
     @staticmethod
     def connect_to_empty_list(user: telegram.User):
-        DBHandler.cursor.execute("SELECT * from grocerylists "
-                                 "RIGHT JOIN groceryuser ON grocerylists.id != groceryuser.grocery_list")
+        DBHandler.cursor.execute("SELECT * from grocerylists WHERE grocerylists.id NOT IN (SELECT id from groceryuser)")
         grocery_list = random.sample(DBHandler.cursor.fetchall(), 1)[0]
 
         DBHandler.cursor.execute("UPDATE grocerylists SET items = '{}' WHERE id = %s", [grocery_list[0]])
