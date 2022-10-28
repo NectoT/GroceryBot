@@ -62,7 +62,7 @@ class DBHandler:
 
     @staticmethod
     def init(name, user, password):
-        DBHandler.connection = psycopg2.connect(database=name, user=user, password=password)
+        DBHandler.connection = psycopg2.connect(database=name, user=user, password=password, host='localhost')
         DBHandler.cursor = DBHandler.connection.cursor()
 
     @staticmethod
