@@ -14,7 +14,7 @@ def valid():
         cursor.close()
         connection.close()
 
-        return cursor.rowcount != 1
+        return cursor.rowcount == 1
     except UndefinedTable:
         cursor.close()
         connection.close()
@@ -27,11 +27,17 @@ def update():
     connection = psycopg2.connect("dbname={0} user=postgres host='localhost' password={1}".format(DBNAME, DBPASSWORD))
     cursor = connection.cursor()
     cursor.execute('''
-        CREATE TABLE valid (
-            id integer PRIMARY KEY
-        );
+        UPDATE valid SET id = 1;
+    
+        ALTER TABLE groceryUser RENAME COLUMN grocery_list TO current_list;
+        ALTER TABLE groceryUser ADD COLUMN last_message date;
+        UPDATE groceryUser SET last_message = CURRENT_DATE;
         
-        INSERT INTO valid VALUES (%s)
+        CREATE TABLE lists_user (
+            list_id integer REFERENCES groceryLists (id) ON DELETE CASCADE,
+            user_id integer REFERENCES groceryUser (id),
+            list_name text
+        );
     ''', [VALID_ID])
     connection.commit()
     cursor.close()
@@ -44,9 +50,9 @@ if __name__ == "main":
 
     # deleting old version if existed
     cursor.execute('''
-        DROP TABLE IF EXISTS groceryLists
-        DROP TABLE IF EXISTS groceryUser
-        DROP TABLE IF EXISTS valid
+        DROP TABLE IF EXISTS groceryLists;
+        DROP TABLE IF EXISTS groceryUser;
+        DROP TABLE IF EXISTS valid;
     ''')
 
     cursor.execute(
@@ -57,7 +63,14 @@ if __name__ == "main":
     
         CREATE TABLE groceryUser (
             id integer PRIMARY KEY,
-            grocery_list integer REFERENCES groceryLists (id) ON DELETE CASCADE
+            last_message date,
+            current_list integer REFERENCES groceryLists (id)
+        );
+        
+        CREATE TABLE lists_user (
+            list_id integer REFERENCES groceryLists (id) ON DELETE CASCADE,
+            user_id integer REFERENCES groceryUser (id),
+            list_name text
         );
         
         CREATE TABLE valid {
