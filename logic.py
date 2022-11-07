@@ -122,8 +122,11 @@ class DBHandler:
         else:
             DBHandler.cursor.execute("UPDATE groceryUser SET current_list = %s WHERE id = %s",
                                      (grocery_list_id, user.id))
-        DBHandler.cursor.execute("INSERT INTO lists_user (user_id, list_id) VALUES (%s, %s)",
+        DBHandler.cursor.execute("SELECT * from lists_user WHERE user_id = %s and list_id = %s",
                                  (user.id, grocery_list_id))
+        if DBHandler.cursor.rowcount == 0:  # check that this user wasn't already in this grocery list
+            DBHandler.cursor.execute("INSERT INTO lists_user (user_id, list_id) VALUES (%s, %s)",
+                                    (user.id, grocery_list_id))
         DBHandler.connection.commit()
 
     @staticmethod
