@@ -31,8 +31,10 @@ BOTMESSAGES = {
         "remove_help": "Write the item you want to remove",
         "remove_failed": "Could not remove this item. Are you sure it exists?",
         "remove_wrong_args": "This command expects an item to remove. Example: /remove Milk",
-        "left_current_list": "You've left this list",
-        "left_list": "You've left list {identifier}",
+        "forgot_current_list": "This list won't be shown to you anymore",
+        "forgot_list": "List {identifier} won't be shown to you anymore",
+        "forget_wrong_list": "It seems there's no list with such name",
+        "no_lists": "You don't have any lists",
         "moved_to": "You've moved to list {identifier}",
         "numeric_name": "Grocery list's name can't be a number",
         "name_help": "Type in a new name for this list",
@@ -45,7 +47,7 @@ BOTMESSAGES = {
                  "новые предметы с помощью команды /add, или просто отправить сообщение с новым предметом. Если вы хотите"
                  " добавить сразу несколько предметов, напишите каждый из них на отдельной строке",
         "join_help": "Введите код списка, к которому вы хотите подключиться",
-        "join_failed": "Кажется списка с таким кодом не существует",
+        "join_failed": "Кажется, списка с таким кодом не существует",
         "join_wrong_args": "Вы должны указать код вместе с командой. Пример: /join 123",
         "/create": "Список покупок создан! Вот его код: {code}. Вы можете добавить "
                    "новые предметы с помощью команды /add, или просто отправить сообщение с новым предметом. Если вы хотите"
@@ -59,8 +61,10 @@ BOTMESSAGES = {
         "remove_help": "Напишите, что вы хотите убрать",
         "remove_failed": "Не удалось убрать этот предмет. Он точно есть в вашем списке?",
         "remove_wrong_args": "Вы должны указать предмет, который хотите удалить. Пример: /remove Milk",
-        "left_current_list": "Вы вышли из списка",
-        "left_list": "Вы вышли из списка {identifier}",
+        "forgot_current_list": "Вам больше не будет показываться этот список",
+        "forgot_list": "Вам больше не будет показываться список {identifier}",
+        "forget_wrong_list": "Кажется, такого списка не существует",
+        "no_lists": "You don't have any lists",
         "moved_to": "Вы перешли в список {identifier}",
         "numeric_name": "Имя списка покупок не может быть числом",
         "name_help": "Введите новое имя для этого списка",
@@ -78,6 +82,11 @@ class DBHandler:
     def init(name, user, password):
         DBHandler.connection = psycopg2.connect(database=name, user=user, password=password, host='localhost')
         DBHandler.cursor = DBHandler.connection.cursor()
+
+    @staticmethod
+    def user_exists(user: telegram.User):
+        DBHandler.cursor.execute("SELECT * from groceryuser WHERE id = %s ", [user.id])
+        return DBHandler.cursor.rowcount == 1
 
     @staticmethod
     def connect_to_empty_list(user: telegram.User):
@@ -111,10 +120,6 @@ class DBHandler:
             DBHandler.cursor.execute("INSERT INTO groceryuser (id, current_list) VALUES (%s, %s)",
                                      (user.id, grocery_list_id))
         else:
-            DBHandler.cursor.execute("SELECT * FROM lists_user WHERE user_id = %s and list_id = %s",
-                                     [user.id, grocery_list_id])
-            if DBHandler.cursor.rowcount > 0:
-                raise ValueError("Trying to join a list where this user already is present")
             DBHandler.cursor.execute("UPDATE groceryUser SET current_list = %s WHERE id = %s",
                                      (grocery_list_id, user.id))
         DBHandler.cursor.execute("INSERT INTO lists_user (user_id, list_id) VALUES (%s, %s)",
@@ -122,26 +127,41 @@ class DBHandler:
         DBHandler.connection.commit()
 
     @staticmethod
-    def leave_list(user: telegram.User, grocery_list_id=None, grocery_list_alias=None):
-        if grocery_list_id is not None:
-            DBHandler.cursor.execute('''
-                DELETE FROM lists_user WHERE user_id = %s and list_id = %s
-            ''', (user.id, grocery_list_id))
-            DBHandler.cursor.execute("UPDATE groceryuser SET current_list=NULL WHERE id = %s", [user.id])
-            DBHandler.connection.commit()
-        elif grocery_list_alias is not None:
-            DBHandler.cursor.execute('''
-                            DELETE FROM lists_user WHERE user_id = %s and list_name = %s
-                        ''', (user.id, grocery_list_alias))
-            DBHandler.cursor.execute("UPDATE groceryuser SET current_list=NULL WHERE id = %s", [user.id])
-            DBHandler.connection.commit()
-        else:
+    def forget_list(user: telegram.User, grocery_list_id=None, grocery_list_alias=None):
+        if not DBHandler.user_exists(user):
+            raise ReferenceError("User doesn't have any lists")
+        if grocery_list_id is None and grocery_list_alias is None:
             raise KeyError("Insufficient arguments provided")
 
+        if grocery_list_id is None:
+            DBHandler.cursor.execute("SELECT list_id from lists_user WHERE user_id = %s and list_name = %s",
+                                     (user.id, grocery_list_alias))
+            if DBHandler.cursor.rowcount == 0:
+                raise ValueError("No lists found with such name")
+            grocery_list_id = DBHandler.cursor.fetchone()[0]
+
+        DBHandler.cursor.execute("SELECT current_list from groceryuser WHERE id = %s", [user.id])
+        current_list = DBHandler.cursor.fetchone()[0]
+        if current_list == grocery_list_id:
+            DBHandler.forget_current_list(user)
+        else:
+            DBHandler.cursor.execute('''
+                            DELETE FROM lists_user WHERE user_id = %s and list_id = %s
+                        ''', (user.id, grocery_list_id))
+            DBHandler.connection.commit()
+
     @staticmethod
-    def leave_current_list(user: telegram.User):
+    def forget_current_list(user: telegram.User):
+        if not DBHandler.user_exists(user):
+            raise ReferenceError("User doesn't have any lists")
         DBHandler.cursor.execute("SELECT current_list FROM groceryuser WHERE id = %s", [user.id])
-        DBHandler.leave_list(user, grocery_list_id=DBHandler.cursor.fetchone()[0])
+        list_id = DBHandler.cursor.fetchone()[0]
+        DBHandler.cursor.execute('''
+                        DELETE FROM lists_user WHERE user_id = %s and list_id = %s ''', (user.id, list_id))
+        DBHandler.cursor.execute("SELECT * FROM lists_user WHERE user_id = %s", [user.id])
+        if DBHandler.cursor.rowcount == 0:
+            DBHandler.cursor.execute("DELETE FROM groceryuser WHERE id = %s", [user.id])
+        DBHandler.connection.commit()
 
     @staticmethod
     def move_to_list(user: telegram.User, grocery_list_id=None, grocery_list_alias=None):
@@ -150,8 +170,14 @@ class DBHandler:
         if grocery_list_id is None:
             DBHandler.cursor.execute("SELECT list_id from lists_user WHERE user_id = %s and list_name = %s",
                                      (user.id, grocery_list_alias))
+            if DBHandler.cursor.rowcount == 0:
+                raise ValueError("User is not connected to this list")
             grocery_list_id = DBHandler.cursor.fetchone()[0]
 
+        DBHandler.cursor.execute("SELECT list_id from lists_user WHERE user_id = %s and list_id = %s",
+                                 (user.id, grocery_list_id))
+        if DBHandler.cursor.rowcount == 0:
+            raise ValueError("User is not connected to this list")
         DBHandler.cursor.execute('''
             UPDATE groceryuser SET current_list = %s WHERE id = %s
         ''', (grocery_list_id, user.id))
@@ -159,6 +185,8 @@ class DBHandler:
 
     @staticmethod
     def name_current_list(user: telegram.User, grocery_list_alias):
+        if not DBHandler.user_exists(user):
+            return
         DBHandler.cursor.execute("SELECT current_list from groceryuser WHERE id = %s", [user.id])
         grocery_list_id = DBHandler.cursor.fetchone()[0]
         DBHandler.cursor.execute("UPDATE lists_user SET list_name = %s WHERE user_id = %s and list_id = %s",
@@ -167,6 +195,8 @@ class DBHandler:
 
     @staticmethod
     def get_users_lists(user: telegram.User):  # returns a tuple of list_id, list_alias
+        if not DBHandler.user_exists(user):
+            return []
         DBHandler.cursor.execute("SELECT * from lists_user WHERE user_id = %s", [user.id])
         rows = DBHandler.cursor.fetchall()
         return [(row[0], row[2]) for row in rows]
@@ -300,7 +330,7 @@ def set_full_commands(bot, chat_id):
         ("check", "See the grocery list"),
         ("join", "Join an existing grocery list"),
         ("create", "Create a new list"),
-        ("leave", "Leave the current list, or leave another list if you provide its name or code"),
+        ("forget", "Forget the current list, or forget another list if you provide its name or code"),  # leave
         ("show", "Show all the lists you have"),
         ("name", "Name your current list"),
     ], language_code="en", scope=telegram.BotCommandScopeChat(chat_id))
@@ -310,7 +340,7 @@ def set_full_commands(bot, chat_id):
         ("check", "Посмотреть список покупок"),
         ("join", "Подключиться к списку покупок"),
         ("create", "Создать новый список"),
-        ("leave", "Выйти из этого списка или из другого, если вы укажете его имя или номер"),
+        ("forget", "Забыть об этом списке, или другом, если вы укажете его имя или номер"),
         ("show", "Показать все списки, которые у вас есть"),
         ("name", "Назвать текущий список")
     ], language_code="ru", scope=telegram.BotCommandScopeChat(chat_id))
@@ -335,35 +365,44 @@ def join_grocery_list(bot, user, chat_id, grocery_list_id):
 
 
 def move_to_list(bot, user, chat_id, grocery_list_identifier: str):
-    if grocery_list_identifier.isnumeric():
-        DBHandler.move_to_list(user, grocery_list_id=int(grocery_list_identifier))
-        bot.send_message(chat_id, BOTMESSAGES[user.language_code]["moved_to"].format(
-            identifier=grocery_list_identifier))
-    else:
-        DBHandler.move_to_list(user, grocery_list_alias=grocery_list_identifier)
-        bot.send_message(chat_id, BOTMESSAGES[user.language_code]["moved_to"].format(
-            identifier="'" + grocery_list_identifier + "'"))
+    try:
+        if grocery_list_identifier.isnumeric():
+            DBHandler.move_to_list(user, grocery_list_id=int(grocery_list_identifier))
+            bot.send_message(chat_id, BOTMESSAGES[user.language_code]["moved_to"].format(
+                identifier=grocery_list_identifier))
+        else:
+            DBHandler.move_to_list(user, grocery_list_alias=grocery_list_identifier)
+            bot.send_message(chat_id, BOTMESSAGES[user.language_code]["moved_to"].format(
+                identifier="'" + grocery_list_identifier + "'"))
+        check_grocery_list(bot, user, chat_id)
+    except ValueError:
+        pass  # silently ignore this error: from user's perspective an old button just won't work, which is fine
 
 
-def leave_grocery_list(bot, user, chat_id, grocery_list_identifier: str):
-    if grocery_list_identifier == "":
-        DBHandler.leave_current_list(user)
-        bot.send_message(chat_id, BOTMESSAGES[user.language_code]["left_current_list"])
+def forget_grocery_list(bot, user, chat_id, grocery_list_identifier: str):
+    try:
+        if grocery_list_identifier == "":
+            DBHandler.forget_current_list(user)
+            bot.send_message(chat_id, BOTMESSAGES[user.language_code]["forgot_current_list"])
 
-        user_lists = DBHandler.get_users_lists(user)
-        if len(user_lists) > 0:
-            if user_lists[0][1] is not None:
-                move_to_list(bot, user, chat_id, grocery_list_identifier=user_lists[0][1])
-            else:
-                move_to_list(bot, user, chat_id, grocery_list_identifier=str(user_lists[0][0]))
-    elif grocery_list_identifier.isnumeric():
-        DBHandler.leave_list(user, grocery_list_id=int(grocery_list_identifier))
-        bot.send_message(chat_id, BOTMESSAGES[user.language_code]["left_list"].format(
-            identifier="#" + grocery_list_identifier))
-    else:
-        DBHandler.leave_list(user, grocery_list_alias=grocery_list_identifier)
-        bot.send_message(chat_id, BOTMESSAGES[user.language_code]["left_list"].format(
-            identifier="'" + grocery_list_identifier + "'"))
+            user_lists = DBHandler.get_users_lists(user)
+            if len(user_lists) > 0:
+                if user_lists[0][1] is not None:
+                    move_to_list(bot, user, chat_id, grocery_list_identifier=user_lists[0][1])
+                else:
+                    move_to_list(bot, user, chat_id, grocery_list_identifier=str(user_lists[0][0]))
+        elif grocery_list_identifier.isnumeric():
+            DBHandler.forget_list(user, grocery_list_id=int(grocery_list_identifier))
+            bot.send_message(chat_id, BOTMESSAGES[user.language_code]["forgot_list"].format(
+                identifier="#" + grocery_list_identifier))
+        else:
+            DBHandler.forget_list(user, grocery_list_alias=grocery_list_identifier)
+            bot.send_message(chat_id, BOTMESSAGES[user.language_code]["forgot_list"].format(
+                identifier="'" + grocery_list_identifier + "'"))
+    except ReferenceError:
+        bot.send_message(chat_id, BOTMESSAGES[user.language_code]["no_lists"])
+    except ValueError:
+        bot.send_message(chat_id, BOTMESSAGES[user.language_code]["forget_wrong_list"])
 
 
 def name_grocery_list(bot, user, chat_id, grocery_list_alias: str):
@@ -474,8 +513,8 @@ async def handle_updates(bot: telegram.Bot, update_queue: Queue):
                         join_grocery_list(bot, user, update.message.chat_id, grocery_list_id)
                     except ValueError:
                         bot.send_message(update.message.chat_id, BOTMESSAGES[user.language_code]["join_wrong_args"])
-            elif get_command(update.message) == "/leave":
-                leave_grocery_list(bot, user, update.message.chat_id, get_text(update.message))
+            elif get_command(update.message) == "/forget":
+                forget_grocery_list(bot, user, update.message.chat_id, get_text(update.message))
             elif get_command(update.message) == "/show":
                 get_lists(bot, user, update.message.chat_id)
             elif get_command(update.message) == "/name":
