@@ -1,6 +1,7 @@
 import os
 import subprocess
 import time
+import datetime
 import atexit
 import init_db
 
@@ -22,6 +23,7 @@ def on_exit():
 
 atexit.register(on_exit)
 while True:
+    print(datetime.datetime.now())
     os.system("git pull origin")
     print("Pulled newest version from origin")
     if not init_db.valid():
