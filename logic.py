@@ -89,6 +89,12 @@ class DBHandler:
         return DBHandler.cursor.rowcount == 1
 
     @staticmethod
+    def update_user_last_message(user: telegram.User, date):
+        if not DBHandler.user_exists(user):
+            return
+        DBHandler.cursor.execute("UPDATE groceryuser SET last_message = %s WHERE id = %s", [date, user.id])
+
+    @staticmethod
     def connect_to_empty_list(user: telegram.User):
         DBHandler.cursor.execute(
             "SELECT * from grocerylists WHERE grocerylists.id NOT IN (SELECT list_id from lists_user)")
@@ -477,6 +483,7 @@ async def handle_updates(bot: telegram.Bot, update_queue: Queue):
 
         if update.callback_query is not None:
             user: telegram.User = update.callback_query.from_user
+            DBHandler.update_user_last_message(user, update.callback_query.message.date)
             if update.callback_query.data == "join":
                 bot.send_message(update.callback_query.message.chat_id, BOTMESSAGES[user.language_code]["join_help"])
                 UnfinishedCommand(user, update.callback_query.message.chat_id, "/join")
@@ -489,6 +496,7 @@ async def handle_updates(bot: telegram.Bot, update_queue: Queue):
 
         if update.message is not None:
             user: telegram.User = update.message.from_user
+            DBHandler.update_user_last_message(user, update.message.date)
             command_finished = False
             for unfinished_command in UnfinishedCommand.commands:
                 if unfinished_command.get_user_id() == user.id:
